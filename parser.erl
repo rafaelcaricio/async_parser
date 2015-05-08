@@ -58,7 +58,9 @@ ast_match_root(Code) ->
     end.
 
 
-parse(BinaryCode) ->
-    CodeAsList = binary_to_list(BinaryCode),
-    {AstTree, _UnParsedCode} = ast_match_root(CodeAsList),
+parse(BinaryCode) when is_binary(BinaryCode) ->
+    parse(binary_to_list(BinaryCode));
+
+parse(Code) ->
+    {AstTree, _UnParsedCode} = ast_match_root(Code),
     AstTree.

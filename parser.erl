@@ -19,8 +19,9 @@ ast_match_number(Code) ->
             Token = {number, [{value, NumberValue}]},
             {Token, RestOfCode};
         nomatch ->
-            throw(nomatch)
+            ok
     end.
+
 
 ast_match_operator(Code) ->
     case re:run(Code, "^(\\+)(.*)", [global]) of
@@ -30,7 +31,7 @@ ast_match_operator(Code) ->
             Token = {operator, [{value, TxtOperator}]},
             {Token, RestOfCode};
         nomatch ->
-            throw(nomatch)
+            ok
     end.
 
 
@@ -42,25 +43,56 @@ ast_match_binary_operation(Code) ->
     {Token, RestOfCode}.
 
 
-ast_match_root(Code) ->
-    try ast_match_binary_operation(Code) of
-        {Ast, RestOfCode} ->
-            {{root, Ast}, RestOfCode}
-    catch
-        nomatch ->
-            try ast_match_number(Code) of
-                {Ast, RestOfCode} ->
-                    {{root, Ast}, RestOfCode}
-            catch
-                nomatch ->
-                    {{root, nil}, Code}
-            end
+async_ast_match_number(CallerPid, Code) ->
+    case ast_match_number(Code) of
+        {{number, _}, _RestOfCode} = Result ->
+            CallerPid ! {self(), Result};
+        ok ->
+            CallerPid ! {self(), nomatch};
+        Debug ->
+            io:format("~p", [Debug])
     end.
 
+
+async_ast_match_binary_operation(CallerPid, Code) ->
+    case ast_match_binary_operation(Code) of
+        {{binary_op, _}, _RestOfCode} = Result ->
+            CallerPid ! {self(), Result};
+        ok ->
+            CallerPid ! {self(), nomatch}
+    end.
+
+
+async_ast_match_root(CallerPid, Code) ->
+    process_flag(trap_exit, true),
+    BinaryOpPid = spawn_link(?MODULE, async_ast_match_binary_operation, [self(), Code]),
+    NumberPid = spawn_link(?MODULE, async_ast_match_number, [self(), Code]),
+    listen_reply(CallerPid, BinaryOpPid, NumberPid).
+
+
+listen_reply(CallerPid, BinaryOpPid, NumberPid) ->
+    receive
+        {BinaryOpPid, {{binary_op, _}, _RestOfCode} = Result} ->
+            CallerPid ! {self(), Result};
+        {NumberPid, {{number, _}, _RestOfCode} = Result} ->
+            CallerPid ! {self(), Result};
+        {_, nomatch} ->
+            listen_reply(CallerPid, BinaryOpPid, NumberPid)
+    end.
+
+
+parse("") ->
+    {root, nil};
 
 parse(BinaryCode) when is_binary(BinaryCode) ->
     parse(binary_to_list(BinaryCode));
 
 parse(Code) ->
-    {AstTree, _UnParsedCode} = ast_match_root(Code),
-    AstTree.
+    AstPid = spawn_link(?MODULE, async_ast_match_root, [self(), Code]),
+    receive
+        {AstPid, Result} ->
+            Result
+    after
+        2000 ->
+            timeout
+    end.

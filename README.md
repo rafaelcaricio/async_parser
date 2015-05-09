@@ -1,4 +1,4 @@
-# Async Parser - Asyncronous parsing made easy
+# Async Parser - Asyncronous parsing in Erlang
 
 ```warn
 Note: This project is just a playgorund for now. Use by your own reponsability.
